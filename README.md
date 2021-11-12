@@ -11,6 +11,6 @@ It takes about 20 generations of 150 neural network to do a XOR function
 Next step will be to approximate complex behavior such as human playing Mario.
 
 # References
-http://nn.cs.utexas.edu/downloads/papers/stanley.ec02.pdf
+Original article : http://nn.cs.utexas.edu/downloads/papers/stanley.ec02.pdf
 
-https://www.programmersought.com/article/11446589053/
+Neat MarIO : https://www.programmersought.com/article/11446589053/
