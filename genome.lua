@@ -2,10 +2,54 @@ require "class"
 require "math"
 local json = require("json")
 
+weightConnectionsChance = 0.25
+perturbChance = 0.90
+crossoverChance = 0.75
+linkMutationChance = 2.0
+nodeMutationChance = 0.5
+biasMutationChance = 0.4
+stepSize = 0.1
+disableMutationChance = 0.9
+enableMutationChance = 0.2
+
 Gene = class(function(gene, genome, nodeType)
-			gene.id = genome:getNextGeneId()
-			gene.type = nodeType
-		end)
+	if genome ~= nil then
+		gene.id = genome:getNextGeneId()
+	else
+		gene.id = -1
+	end
+	gene.type = nodeType
+end)
+
+ConnectionGene = class(function(gene, genome, nodeIn, nodeOut, weight)
+	gene.nodeIn = nodeIn
+	gene.nodeOut = nodeOut
+	gene.weight = weight
+	if genome ~= nil then
+		gene.innovationId = genome:getNextInnovationId()
+	else
+		gene.innovationId = -1
+	end
+	gene.active = true
+end)
+
+Genome = class(function(genome)
+	genome.genes = {}
+	genome.connectionGenes = {}
+	genome.network = {}
+	genome.fitness = -1.0
+	genome.geneInnovation = 1
+	genome.connectionInnovation = 1
+	genome.globalRank = 0
+	genome.mutationRates = {}
+	genome.mutationRates["weights"] = weightConnectionsChance
+	genome.mutationRates["link"] = linkMutationChance
+	genome.mutationRates["bias"] = biasMutationChance
+	genome.mutationRates["node"] = nodeMutationChance
+	genome.mutationRates["enable"] = enableMutationChance
+	genome.mutationRates["disable"] = disableMutationChance
+	genome.mutationRates["step"] = stepSize	
+end)
 
 function Gene:print()
 	console.log(self.innovationId)
@@ -16,13 +60,6 @@ function Gene:copyFrom(gene)
 	self.type = gene.type
 end
 
-ConnectionGene = class(function(gene, genome, nodeIn, nodeOut, weight)
-			gene.nodeIn = nodeIn
-			gene.nodeOut = nodeOut
-			gene.weight = weight
-			gene.innovationId = genome:getNextInnovationId()
-			gene.active = true
-		end)
 function ConnectionGene:copyFrom(gene)	
 	self.nodeIn = gene.nodeIn
 	self.nodeOut = gene.nodeOut
@@ -34,31 +71,30 @@ end
 function ConnectionGene:activate(active)
 	self.active = active
 end
-		
-Genome = class(function(genome)
-			genome.genes = {}
-			genome.connectionGenes = {}
-			genome.fitness = 0.0
-			genome.geneInnovation = 1
-			genome.connectionInnovation = 1
-			genome.globalRank = 0
-		end)
-		
+				
 function Genome:copyFrom(genome)
 	for i = 1, #genome.genes do
-		local gene = Gene(genome)
+		local gene = Gene(self)
 		gene:copyFrom(genome.genes[i])
 		self.genes[#self.genes+1] = gene
 	end
 	for i = 1, #genome.connectionGenes do
-		local gene = ConnectionGene(genome)
+		local gene = ConnectionGene(self)
 		gene:copyFrom(genome.connectionGenes[i])
 		self.connectionGenes[#self.connectionGenes+1] = gene
 	end
 	self.fitness = genome.fitness
 	self.geneInnovation = genome.geneInnovation
 	self.connectionInnovation = genome.connectionInnovation
-	self.globalRank = genome.globalRank	
+	self.globalRank = genome.globalRank		
+	self.mutationRates["weights"] = genome.mutationRates["weights"]
+	self.mutationRates["link"] = genome.mutationRates["link"]
+	self.mutationRates["bias"] = genome.mutationRates["bias"]
+	self.mutationRates["node"] = genome.mutationRates["node"]
+	self.mutationRates["enable"] = genome.mutationRates["enable"]
+	self.mutationRates["disable"] = genome.mutationRates["disable"]
+	self.mutationRates["step"] = genome.mutationRates["step"]
+	
 end
 
 function Genome:isConnectionExists(nodeIn, nodeOut)
@@ -68,6 +104,18 @@ function Genome:isConnectionExists(nodeIn, nodeOut)
 			result = true
 			break
 		end
+	end
+	return result
+end
+
+function Genome:hasBias(gene)
+	local result = false
+	for i = 1, #self.connectionGenes do
+		local connection = self.connectionGenes[i]
+		if connection.nodeOut.id == gene.id and connection.nodeIn.type == "Bias" then
+			result = true
+			break
+		end		
 	end
 	return result
 end
@@ -121,115 +169,6 @@ function Genome:sortByNodeOut()
 	end)
 end
 
-function Genome:compare(genome)
-	local result = {}
-	local matchs = {}
-	local disjoints = {}
-	local excess = {}
-	local matchCount = 0
-	local disjointCount = 0
-	local excessCount = 0
-	local genes = {}
-	local weightDifference = 0
-	self:sortByInnovation()
-	genome:sortByInnovation()
-	local len1 = #self.connectionGenes
-	local len2 = #genome.connectionGenes
-	
-	local maxGenomeLen = math.max(len1, len2)
-	local i1 = 1
-	local i2 = 1
-	for i = 1, maxGenomeLen do
-		if (i1 <= len1 and i2 <= len2) then
-			local c1 = self.connectionGenes[i1]
-			local c2 = genome.connectionGenes[i2]
-			if c1.innovationId == c2.innovationId then
-				matchCount = matchCount + 1
-				weightDifference = weightDifference + math.abs(c1.weight - c2.weight)
-				if math.random() > 0.5 then					
-					matchs[#matchs+1] = c1
-				else
-					matchs[#matchs+1] = c2
-				end
-				i1 = i1 + 1
-				i2 = i2 + 1
-			elseif c1.innovationId > c2.innovationId then
-				disjointCount = disjointCount + 1
-				if genome.fitness >= self.fitness then
-					disjoints[#disjoints+1] = c2
-				end
-				i2 = i2 + 1				
-			elseif c1.innovationId < c2.innovationId then
-				disjointCount = disjointCount + 1
-				if self.fitness >= genome.fitness then
-					disjoints[#disjoints+1] = c1
-				end
-				i1 = i1 + 1				
-			end
-		end
-		if i1 > len1 then
-			excessCount = excessCount + 1
-			if genome.fitness >= self.fitness then
-				excess[#excess+1] = genome.connectionGenes[i2]
-			end
-			i2 = i2 + 1
-		elseif i2 > len2 then
-			excessCount = excessCount + 1
-			if self.fitness >= genome.fitness then
-				excess[#excess+1] = self.connectionGenes[i1]
-			end
-			i1 = i1 + 1
-		end
-	end
-	result.matchs = matchs
-	result.disjoints = disjoints
-	result.excess = excess
-	result.matchCount = matchCount
-	result.disjointCount = disjointCount
-	result.excessCount = excessCount
-	result.maxGenomeLen = maxGenomeLen
-	result.averageWeight = weightDifference / matchCount
-	return result
-end
-
-function Genome:crossover(parent2)
-	child = Genome()
-	local diff = self:compare(parent2)
-	local allGenes = {}
-	for _, gene in pairs(diff.matchs) do
-		local newGene = ConnectionGene(child)
-		newGene:copyFrom(gene)
-		table.insert(child.connectionGenes, newGene)
-		table.insert(allGenes, gene)
-	end
-	for _, gene in pairs(diff.disjoints) do
-		local newGene = ConnectionGene(child)
-		newGene:copyFrom(gene)
-		table.insert(child.connectionGenes, newGene)
-		table.insert(allGenes, gene)
-	end
-	for _, gene in pairs(diff.excess) do
-		local newGene = ConnectionGene(child)
-		newGene:copyFrom(gene)
-		table.insert(child.connectionGenes, newGene)
-		table.insert(allGenes, gene)
-	end
-	for _, gene in pairs(allGenes) do
-		if not child:isGeneExists(gene.nodeIn) then
-			local newGene = Gene(child)			
-			newGene:copyFrom(gene.nodeIn)
-			table.insert(child.genes, newGene)
-		end
-		if not child:isGeneExists(gene.nodeOut) then
-			local newGene = Gene(child)			
-			newGene:copyFrom(gene.nodeOut)
-			table.insert(child.genes, newGene)
-		end
-	end
-	child:sortByInnovation()
-	return child
-end
-
 function Genome:assureCoherence(inputsCount, outputsCount)
 	local inputs = {}
 	local outputs = {}
@@ -240,11 +179,20 @@ function Genome:assureCoherence(inputsCount, outputsCount)
 			elseif not inputs[connection.nodeIn.id].active then
 				inputs[connection.nodeIn.id] = connection
 			end
-		elseif connection.nodeOut.type == "Output" then
+		end
+		if connection.nodeOut.type == "Output" then
+			if outputs[connection.nodeOut.id] == nil then
+				outputs[connection.nodeOut.id] = connection
+			elseif not outputs[connection.nodeOut.id].active then
+				outputs[connection.nodeOut.id] = connection
+			end
 		end
 	end
 	for _, input in pairs(inputs) do
 		input.active = true
+	end
+	for _, output in pairs(outputs) do
+		output.active = true
 	end
 end
 
@@ -313,29 +261,22 @@ function Genome:initialize(inputsCount, outputsCount)
 		local gene = Gene(self , "Sensor")
 		self:addGene(gene)
 	end
+	local gene = Gene(self, "Bias")
+	self:addGene(gene)
 	for i = 1, outputsCount do
 		local gene = Gene(self , "Output")
 		self:addGene(gene)
 	end
-	local inputs = self:getGenesFromType("Sensor")
-	local outputs = self:getGenesFromType("Output")
-	
-	for i = 1, #inputs do
-		local input = inputs[i]
-		for j = 1, #outputs do
-			local output = outputs[j]
-			local connection = ConnectionGene(self, input, output, math.random() * 2 - 1)
-			self:addConnectionGene(connection)
+	self:mutate()
+end
+
+function Genome:getBias()
+	for i = 1, #self.genes do
+		local gene = self.genes[i]
+		if gene.type == "Bias" then
+			return gene
 		end
 	end
-	local bias = Gene(self, "Bias")
-	self:addGene(bias)
-	for j = 1, #outputs do
-		local output = outputs[j]
-		local connectionBias = ConnectionGene(self, bias, output, 1)
-		self:addConnectionGene(connectionBias)
-	end
---	self:mutate()
 end
 
 function Genome:print()
@@ -346,28 +287,38 @@ end
 
 function Genome:saveToFile(filename)
 	local file = io.open(filename, "w")
-	file:write(json.encode(self))	
+	local genomeToSave = Genome()
+	genomeToSave:copyFrom(self)
+--	genomeToSave.network = self.network
+	genomeToSave.network = {}
+	file:write(json.encode(genomeToSave))
 	file:close()
 end
 
 function Genome:loadFromFile(filename)
 	local file = io.open(filename, "r")
 	local content = file:read("*all")
-	local genome = json.decode(content)	
-	for i = 1, #genome.genes do
-		local gene = Gene(self)
-		gene:copyFrom(genome.genes[i])
-		self.genes[#self.genes+1] = gene
-	end
-	for i = 1, #genome.connectionGenes do
-		local gene = ConnectionGene(self)
-		gene:copyFrom(genome.connectionGenes[i])
-		self.connectionGenes[#self.connectionGenes+1] = gene
-	end
-	self.fitness = genome.fitness
-	self.geneInnovation = genome.geneInnovation
-	self.connectionInnovation = genome.connectionInnovation
-	self.globalRank = genome.globalRank	
-
+	self:loadFromContent(content)
 	file:close()
+end
+
+function Genome:loadFromContent(content)
+	local genome = json.decode(content)
+	self:copyFrom(genome)
+end
+
+function Genome:checkGenes()
+	local genes = {}
+	for i = 1, #self.genes do
+		local found = false
+		for j = 1, #genes do
+			if genes[j].id == self.genes[i].id then
+				console.log(json.encode(self.genes))
+				console.log(json.encode(self.connectionGenes))
+				print(debug.traceback())
+				error("Invalid genes definition")
+			end
+		end
+		table.insert(genes, self.genes[i])
+	end
 end

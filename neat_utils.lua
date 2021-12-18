@@ -9,6 +9,10 @@ function fsigmoidNormalized(activeSum, slope)
 	return 2 * fsigmoid(activeSum, slope) - 1
 end
 
+function sigmoid(x)
+	return 2/(1+math.exp(-4.9*x))-1
+end
+
 function split(input, separator)
 	if separator == nil then
 		separator = "%s"
